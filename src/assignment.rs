@@ -1,5 +1,7 @@
 use std::{fs::DirEntry, path::Path, io, alloc::System, process::{Command, Stdio}};
 
+use fuzzy_matcher::{skim::SkimMatcherV2, FuzzyMatcher};
+
 use crate::Record;
 
 #[derive(Clone, Copy, Debug)]
@@ -107,6 +109,7 @@ impl Problem {
 
 		for suffix in suffixes {
 			// Get true file name and search each
+			println!("Searching {}.{}", self.problem_name, suffix.0);
 			let file_name = format!("{dir}/{}.{}", self.problem_name, suffix.0);
 
 			if let Some(score) = self.file_type.grade(&file_name, &dir, suffix.1) {
@@ -166,12 +169,23 @@ impl Assignment {
 	pub fn grade(&self, dir_name: &str, student_id: &str) -> (f64, String) {
 		let (mut scores, mut total_percentage) = (0.0, 0.0);
 		let mut comment = String::new();
+
+		let mut dir_name = dir_name.to_string();
+
+		// Get inner directory
+		if Path::new(&format!("{}/{}", dir_name, student_id.to_uppercase())).exists() {
+			dir_name += "/";
+			dir_name += &student_id.to_uppercase();
+		} else if Path::new(&format!("{}/{}", dir_name, student_id.to_lowercase())).exists() {
+			dir_name += "/";
+			dir_name += &student_id.to_lowercase();
+		}
 		
 		// Grade all problems
 		for problem in &self.problems {
 			// Grade scores
 			println!("Grading problem {} on student: {student_id}", problem.problem_name);
-			scores += problem.grade(dir_name) as f64 * problem.percentage as f64;
+			scores += problem.grade(&dir_name) as f64 * problem.percentage as f64;
 
 			// Get comment
 			println!("Write down your comment:");

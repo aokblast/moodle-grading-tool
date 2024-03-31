@@ -81,8 +81,11 @@ fn grading(item: &mut Record, matcher: &SkimMatcherV2, dirs: &Vec<String>, assig
 		// Grade the scores
 		let (scores, comment) = assignment.grade(workdir, &item.student_number);
 		output_file.write_fmt(format_args!("{scores},{comment}\n")).unwrap();
-
+	} else {
+		output_file.write_fmt(format_args!("0,\n")).unwrap();
 	}
+
+	output_file.flush().unwrap();
 }
 
 fn main() -> Result<(), Error> {
