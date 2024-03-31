@@ -1,4 +1,4 @@
-use std::{result, collections::HashSet, fs, io, path::Path, process::Stdio};
+use std::{result, collections::HashSet, fs::{self, File}, io::{self, Write}, path::Path, process::Stdio};
 
 use assignment::{Assignment, Problem};
 use calamine::{open_workbook_auto, Error, Reader, RangeDeserializer, RangeDeserializerBuilder, Xlsx, open_workbook};
@@ -14,7 +14,6 @@ struct Record {
 	id: u32, // class generated ID
 	#[serde(rename="學號(Stu No.)")]
 	student_number: String, // student number
-	// TODO: Please add the score index of homework
 }
 
 #[derive(Parser, Debug)]
@@ -23,6 +22,8 @@ struct Args {
 	working_dir: String,
 	#[clap(short, long, default_value = "test.xlsx")]
 	file_path: String,
+	#[clap(short, long, default_value = "output.txt")]
+	output_file: String,
 }
 
 
@@ -58,7 +59,7 @@ fn file_matching(matcher: &SkimMatcherV2, file_name: &str, items: &Vec<String>) 
 	}
 }
 
-fn grading(item: &mut Record, matcher: &SkimMatcherV2, dirs: &Vec<String>, assignment: &Assignment) {
+fn grading(item: &mut Record, matcher: &SkimMatcherV2, dirs: &Vec<String>, assignment: &Assignment, output_file: &mut File) {
 	let mut file_name = String::new();
 	let zip_name = &format!("/{}.zip", &item.student_number);
 	
@@ -72,10 +73,15 @@ fn grading(item: &mut Record, matcher: &SkimMatcherV2, dirs: &Vec<String>, assig
 	}
 
 	if Path::new(&file_name).exists() {
+		// Unzip the file
 		let workdir = Path::new(&file_name).parent().unwrap().to_str().unwrap();
-		println!("Unziping zipfile: {} in workdir: {}", zip_name, workdir);
-		std::process::Command::new("unzip").arg(&file_name).arg(&format!("-d{}", workdir)).stdout(Stdio::null()).status().unwrap();
-		assignment.grade(workdir, &item.student_number);
+		println!("Unziping zipfile: {zip_name} in workdir: {workdir}");
+		std::process::Command::new("unzip").arg(&file_name).arg(&format!("-d{workdir}")).stdout(Stdio::null()).status().unwrap();
+
+		// Grade the scores
+		let (scores, comment) = assignment.grade(workdir, &item.student_number);
+		output_file.write_fmt(format_args!("{scores},{comment}\n")).unwrap();
+
 	}
 }
 
@@ -96,7 +102,9 @@ fn main() -> Result<(), Error> {
 	assignment.add_entry(Problem::new("1", assignment::FileType::PIC, 20));
 	assignment.add_entry(Problem::new("1", assignment::FileType::DOC, 20));
 
-	iterator.for_each(move |item| grading(&mut item.unwrap(), &matcher, &dirs, &assignment));
+	let mut output_file = File::create(&args.output_file).unwrap();
+	
+	iterator.for_each(move |item| grading(&mut item.unwrap(), &matcher, &dirs, &assignment, &mut output_file));
 
 	Ok(())
 }

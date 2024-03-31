@@ -15,10 +15,10 @@ impl ProgramType {
 	}
 
 	fn grade(self, file_name: &str, dir_name: &str, prog_name: &str) -> Option<u32> {
-		let output_file = format!("{}/output", dir_name);
+		let output_file = format!("{dir_name}/output");
 		match self {
 			ProgramType::C => {
-				Command::new(prog_name).arg(file_name).arg(&format!("-o '{}'", output_file)).spawn().unwrap();
+				Command::new(prog_name).arg(file_name).arg(&format!("-o '{output_file}'")).spawn().unwrap();
 				Command::new(output_file).spawn().unwrap();
 			}
 		}
@@ -107,15 +107,25 @@ impl Problem {
 
 		for suffix in suffixes {
 			// Get true file name and search each
-			let file_name = format!("{}/{}.{}", dir, self.problem_name, suffix.0);
+			let file_name = format!("{dir}/{}.{}", self.problem_name, suffix.0);
 
 			if let Some(score) = self.file_type.grade(&file_name, &dir, suffix.1) {
 				return score
 			}
 		}
+		
+		eprintln!("Problem: {} in dir: {dir} not found any file, please type the command you want to execute: ", self.problem_name);
+		let mut line = String::new();
+		io::stdin().read_line(&mut line).unwrap();
 
-		eprintln!("Problem: {} in dir: {} not found any file", self.problem_name, dir);
-		0
+		if Command::new(line).status().is_err() {
+			0
+		} else {
+			let mut line = String::new();
+			io::stdin().read_line(&mut line).unwrap();
+			line.trim().parse().unwrap_or(0)
+		}
+
 	}
 }
 
@@ -145,18 +155,35 @@ impl Assignment {
 		self.problems.push(problem);
 	}
 
-	// Read from dir, get the score of an assignment
-	pub fn grade(&self, dir_name: &str, student_id: &str) -> f64 {
-		let (mut scores, mut total_percentage) = (0.0, 0.0);
+	pub fn get_comment() -> String {
+		let mut line = String::new();
+		io::stdin().read_line(&mut line).unwrap();
+		line = line.trim().to_string();
+		line
+	}
 
+	// Read from dir, get the (score, comment) of an assignment
+	pub fn grade(&self, dir_name: &str, student_id: &str) -> (f64, String) {
+		let (mut scores, mut total_percentage) = (0.0, 0.0);
+		let mut comment = String::new();
+		
 		// Grade all problems
 		for problem in &self.problems {
-			println!("Grading problem {} on student: {}", problem.problem_name, student_id);
-			scores += problem.grade(dir_name) as f64;
+			// Grade scores
+			println!("Grading problem {} on student: {student_id}", problem.problem_name);
+			scores += problem.grade(dir_name) as f64 * problem.percentage as f64;
+
+			// Get comment
+			println!("Write down your comment:");
+			let cur_comment = Self::get_comment();
+			if cur_comment.len() != 0 {
+				comment +=  &format!("{}: {}.", problem.problem_name, cur_comment);
+			}
+
 			total_percentage += problem.percentage as f64;
 		}
 
-		scores / total_percentage
+		(scores / total_percentage, comment)
 	}
 }
 
