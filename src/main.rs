@@ -1,4 +1,4 @@
-use std::{result, collections::HashSet, fs, io, path::Path, process::{Command, Stdio}};
+use std::{result, collections::HashSet, fs, io, path::Path, process::Stdio};
 
 use assignment::{Assignment, Problem};
 use calamine::{open_workbook_auto, Error, Reader, RangeDeserializer, RangeDeserializerBuilder, Xlsx, open_workbook};
@@ -58,31 +58,31 @@ fn file_matching(matcher: &SkimMatcherV2, file_name: &str, items: &Vec<String>) 
 	}
 }
 
-fn grading(item: &mut Record, matcher: &SkimMatcherV2, files: &Vec<String>, assignment: &Assignment) {
+fn grading(item: &mut Record, matcher: &SkimMatcherV2, dirs: &Vec<String>, assignment: &Assignment) {
 	let mut file_name = String::new();
 	let zip_name = &format!("/{}.zip", &item.student_number);
 	
 	// Match with zip file in file_directory
-	if let Some(matched_file) = file_matching(matcher, &item.student_number, files) {
-		file_name = matched_file;
+	if let Some(matched_directory) = file_matching(matcher, &item.student_number, dirs) {
+		file_name = matched_directory;
 		file_name += zip_name;
 	} else {
-		eprintln!("File {} not found. Please type a file name", zip_name);
+		println!("File {} not found. Please type a file name for your zip file", zip_name);
 		io::stdin().read_line(&mut file_name).unwrap();
 	}
 
 	if Path::new(&file_name).exists() {
 		let workdir = Path::new(&file_name).parent().unwrap().to_str().unwrap();
-		println!("Unziping zipfile: {} in workdir: {}", file_name, workdir);
-		Command::new("unzip").arg(&file_name).arg(&format!("-d{}", workdir)).stdout(Stdio::null()).spawn().unwrap();
-		assignment.grade(workdir);
+		println!("Unziping zipfile: {} in workdir: {}", zip_name, workdir);
+		std::process::Command::new("unzip").arg(&file_name).arg(&format!("-d{}", workdir)).stdout(Stdio::null()).status().unwrap();
+		assignment.grade(workdir, &item.student_number);
 	}
 }
 
 fn main() -> Result<(), Error> {
 	let args = Args::parse();
 
-	let files = list_directory(&args.working_dir);
+	let dirs = list_directory(&args.working_dir);
 
 	let mut workbook = open_workbook_auto(args.file_path)?;
 	let worksheet = workbook.worksheet_range("成績")?;
@@ -90,12 +90,13 @@ fn main() -> Result<(), Error> {
 	let iterator = RangeDeserializerBuilder::new().from_range(&worksheet)?;
 	let matcher = SkimMatcherV2::default();
 
+	// Design your own assignment
 	let mut assignment = Assignment::new();
 
 	assignment.add_entry(Problem::new("1", assignment::FileType::PIC, 20));
 	assignment.add_entry(Problem::new("1", assignment::FileType::DOC, 20));
 
-	iterator.for_each(move |item| grading(&mut item.unwrap(), &matcher, &files, &assignment));
+	iterator.for_each(move |item| grading(&mut item.unwrap(), &matcher, &dirs, &assignment));
 
 	Ok(())
 }
