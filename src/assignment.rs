@@ -75,6 +75,7 @@ impl FileType {
 			}
 		}
 
+		println!("Type the score(0-100):");
 		// Read the score
 		let mut line = String::new();
 		io::stdin().read_line(&mut line).unwrap();
@@ -117,18 +118,7 @@ impl Problem {
 			}
 		}
 		
-		eprintln!("Problem: {} in dir: {dir} not found any file, please type the command you want to execute: ", self.problem_name);
-		let mut line = String::new();
-		io::stdin().read_line(&mut line).unwrap();
-
-		if Command::new(line).status().is_err() {
-			0
-		} else {
-			let mut line = String::new();
-			io::stdin().read_line(&mut line).unwrap();
-			line.trim().parse().unwrap_or(0)
-		}
-
+		101
 	}
 }
 
@@ -180,12 +170,20 @@ impl Assignment {
 			dir_name += "/";
 			dir_name += &student_id.to_lowercase();
 		}
-		
+
+		let mut need_reviews = false;
 		// Grade all problems
 		for problem in &self.problems {
 			// Grade scores
 			println!("Grading problem {} on student: {student_id}", problem.problem_name);
-			scores += problem.grade(&dir_name) as f64 * problem.percentage as f64;
+			
+			let score = problem.grade(&dir_name);
+			if score != 101 {
+				scores += score as f64 * problem.percentage as f64;
+			} else {
+				need_reviews = true;
+			}
+
 
 			// Get comment
 			println!("Write down your comment:");
@@ -197,7 +195,7 @@ impl Assignment {
 			total_percentage += problem.percentage as f64;
 		}
 
-		(scores / total_percentage, comment)
+		(scores / total_percentage, comment + if need_reviews {"Need manual review"} else {""})
 	}
 }
 

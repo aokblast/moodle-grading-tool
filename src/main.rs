@@ -1,9 +1,9 @@
-use std::{result, collections::HashSet, fs::{self, File}, io::{self, Write}, path::Path, process::Stdio};
+use std::{result, collections::HashSet, fs::{self, File, OpenOptions}, io::{self, Write, Read, BufReader, BufRead}, path::{Path, PathBuf}, process::Stdio};
 
-use assignment::{Assignment, Problem};
+use assignment::{Assignment, Problem, ProgramType, FileType};
 use calamine::{open_workbook_auto, Error, Reader, RangeDeserializer, RangeDeserializerBuilder, Xlsx, open_workbook};
 use fuzzy_matcher::{skim::SkimMatcherV2, FuzzyMatcher};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::value::BytesDeserializer};
 use clap::Parser;
 
 mod assignment;
@@ -25,7 +25,6 @@ struct Args {
 	#[clap(short, long, default_value = "output.txt")]
 	output_file: String,
 }
-
 
 
 fn list_directory(path: &str) -> Vec<String> {
@@ -59,33 +58,60 @@ fn file_matching(matcher: &SkimMatcherV2, file_name: &str, items: &Vec<String>) 
 	}
 }
 
-fn grading(item: &mut Record, matcher: &SkimMatcherV2, dirs: &Vec<String>, assignment: &Assignment, output_file: &mut File) {
-	let mut file_name = String::new();
-	let zip_name = &format!("/{}.zip", &item.student_number);
+fn grading(item: & Record, matcher: &SkimMatcherV2, dirs: &Vec<String>, assignment: &Assignment, output_file: &mut File) {
+	let mut file_name = PathBuf::new();
+
+	println!("Start grading student: {}", &item.student_number);
 	
 	// Match with zip file in file_directory
 	if let Some(matched_directory) = file_matching(matcher, &item.student_number, dirs) {
-		file_name = matched_directory;
-		file_name += zip_name;
+		file_name.push(matched_directory);
+		file_name.push(item.student_number.to_uppercase());
+		file_name.set_extension("zip");
+
+		// Use lowercase
+		if !file_name.exists() {
+			file_name.pop();
+			file_name.push(item.student_number.to_lowercase());
+			file_name.set_extension("zip");
+		}
 	} else {
-		println!("File {} not found. Please type a file name for your zip file", zip_name);
-		io::stdin().read_line(&mut file_name).unwrap();
+		println!("Zip file for {} not found. Please type a file name for your zip file:", item.student_number);
+		let mut buf = String::new();
+		io::stdin().read_line(&mut buf).unwrap();
+		file_name = PathBuf::from(buf);
 	}
 
-	if Path::new(&file_name).exists() {
+	let (scores, comment) = if file_name.exists() {
 		// Unzip the file
-		let workdir = Path::new(&file_name).parent().unwrap().to_str().unwrap();
-		println!("Unziping zipfile: {zip_name} in workdir: {workdir}");
+		let workdir = file_name.parent().unwrap().to_str().unwrap();
+		println!("Unziping zipfile: {:?} in workdir: {workdir}", file_name);
 		std::process::Command::new("unzip").arg(&file_name).arg(&format!("-d{workdir}")).stdout(Stdio::null()).status().unwrap();
 
 		// Grade the scores
-		let (scores, comment) = assignment.grade(workdir, &item.student_number);
-		output_file.write_fmt(format_args!("{scores},{comment}\n")).unwrap();
+		assignment.grade(workdir, &item.student_number)
 	} else {
-		output_file.write_fmt(format_args!("0,\n")).unwrap();
+		(-1.0, "Need manual review".to_string())
+	};
+
+	output_file.write_fmt(format_args!("{scores}\t{comment}\n")).unwrap();
+	output_file.flush().unwrap();
+}
+
+fn count_line(f: File) -> (File, u32) {
+	let mut cur = 0;
+	let mut reader = BufReader::new(f);
+	let mut line = String::new();
+
+	while let Ok(byte) = reader.read_line(&mut line) {
+		if byte == 0 {
+			break;
+		}
+
+		cur += 1;
 	}
 
-	output_file.flush().unwrap();
+	(reader.into_inner(), cur)
 }
 
 fn main() -> Result<(), Error> {
@@ -96,18 +122,24 @@ fn main() -> Result<(), Error> {
 	let mut workbook = open_workbook_auto(args.file_path)?;
 	let worksheet = workbook.worksheet_range("成績")?;
 
-	let iterator = RangeDeserializerBuilder::new().from_range(&worksheet)?;
+	let mut iterator = RangeDeserializerBuilder::new().from_range(&worksheet)?;
 	let matcher = SkimMatcherV2::default();
 
-	// Design your own assignment
+	// TODO: Design your own assignment
 	let mut assignment = Assignment::new();
+	assignment.add_entry(Problem::new("1", FileType::PIC, 20));
+	assignment.add_entry(Problem::new("1", FileType::DOC, 20));
+	assignment.add_entry(Problem::new("2", FileType::DOC, 30));
+	assignment.add_entry(Problem::new("3", FileType::PROGRAM(ProgramType::C, true), 15));
+	assignment.add_entry(Problem::new("3", FileType::PIC, 15));
 
-	assignment.add_entry(Problem::new("1", assignment::FileType::PIC, 20));
-	assignment.add_entry(Problem::new("1", assignment::FileType::DOC, 20));
+	let output_file = OpenOptions::new().read(true).write(true).create(true).open(&args.output_file).unwrap();
 
-	let mut output_file = File::create(&args.output_file).unwrap();
+	let (mut output_file, lines) = count_line(output_file);
+
+	println!("{lines} lines previously.");
 	
-	iterator.for_each(move |item| grading(&mut item.unwrap(), &matcher, &dirs, &assignment, &mut output_file));
+	iterator.skip(lines as usize).for_each(move |item| grading(&item.unwrap(), &matcher, &dirs, &assignment, &mut output_file));
 
 	Ok(())
 }
