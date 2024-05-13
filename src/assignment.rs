@@ -1,4 +1,5 @@
 use std::{
+    env::{self, set_current_dir},
     io,
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -40,6 +41,7 @@ pub enum FileType {
     Doc,
     Program(ProgramType, bool), // (Which type of program, raw file?)
     Pic,
+    Patch(Option<&'static str>),
 }
 
 impl FileType {
@@ -49,10 +51,20 @@ impl FileType {
             FileType::Doc => &[("txt", "kate"), ("pdf", "evince")],
             FileType::Pic => &[("jpg", "feh"), ("png", "feh")],
             FileType::Program(program, _) => program.get_suffixes(),
+            FileType::Patch(_) => &[("patch", "")],
         }
     }
 
     fn grade(self, file_name: &str, dir_name: &str, prog_name: &str) -> Option<u32> {
+        let call_editor = |file_name: &str| {
+            Command::new("kate")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .arg(file_name)
+                .spawn()
+                .unwrap();
+        };
+
         if !Path::new(file_name).exists() {
             return None;
         }
@@ -76,14 +88,41 @@ impl FileType {
             }
             FileType::Program(program, is_raw) => {
                 if is_raw {
-                    Command::new("kate")
-                        .stdin(Stdio::null())
-                        .stdout(Stdio::null())
-                        .arg(file_name)
-                        .spawn()
-                        .unwrap();
+                    call_editor(file_name);
                 } else {
                     return program.grade(file_name, dir_name, prog_name);
+                }
+            }
+            FileType::Patch(path) => {
+                if let Some(proj_dir_name) = path {
+                    let project_dir = Path::new(proj_dir_name);
+                    let cur_working_dir = env::current_dir().unwrap();
+
+                    // Copy patch file to project directory
+                    Command::new("cp")
+                        .arg("-f")
+                        .arg(&file_name)
+                        .arg(&project_dir)
+                        .status()
+                        .unwrap();
+
+                    set_current_dir(project_dir).unwrap();
+                    // Reset project
+                    Command::new("git")
+                        .arg("checkout")
+                        .arg(".")
+                        .status()
+                        .unwrap();
+                    // Go project
+                    Command::new("git")
+                        .arg("apply")
+                        .arg(&Path::new(file_name).file_name().unwrap())
+                        .status()
+                        .unwrap();
+                    // Use Project
+                    set_current_dir(cur_working_dir).unwrap();
+                } else {
+                    call_editor(file_name);
                 }
             }
         }
